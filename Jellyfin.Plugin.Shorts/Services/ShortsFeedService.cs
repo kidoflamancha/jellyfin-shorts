@@ -51,7 +51,16 @@ public class ShortsFeedService
 
         if (folderId.HasValue && folderId.Value != Guid.Empty)
         {
-            query.ParentId = folderId.Value;
+            var targetItem = _libraryManager.GetItemById(folderId.Value);
+            if (targetItem != null && !targetItem.IsFolder && targetItem.ParentId != Guid.Empty)
+            {
+                // Target is a single video; use its parent folder instead
+                query.ParentId = targetItem.ParentId;
+            }
+            else
+            {
+                query.ParentId = folderId.Value;
+            }
         }
 
         // Fetch candidate videos

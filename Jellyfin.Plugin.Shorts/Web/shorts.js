@@ -87,14 +87,20 @@
   const likedItems = new Set(JSON.parse(localStorage.getItem('shorts_likes') || '[]'));
 
   // ==========================================
-  // 1. Video Preloading & Blob Caching Pool
+  // 1. Asynchronous Idle Preloader & Blob Pool
   // ==========================================
-  const MAX_BLOB_CACHE = 5;
-  const blobCache = new Map(); // itemId -> { blobUrl, size, timestamp, abortCtrl }
+  const MAX_BLOB_CACHE = 4;
+  const blobCache = new Map(); // itemId -> { blobUrl, size, timestamp }
+  let currentPreloadAbortCtrl = null;
+  let preloadIdleTimer = null;
 
   function clearBlobCache() {
+    if (currentPreloadAbortCtrl) {
+      currentPreloadAbortCtrl.abort();
+      currentPreloadAbortCtrl = null;
+    }
+    clearTimeout(preloadIdleTimer);
     for (const [id, entry] of blobCache.entries()) {
-      if (entry.abortCtrl) entry.abortCtrl.abort();
       if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
     }
     blobCache.clear();
@@ -102,7 +108,6 @@
 
   function pruneBlobCache() {
     if (blobCache.size <= MAX_BLOB_CACHE) return;
-    // Evict entries farthest from currentIndex
     const currentVideoIds = new Set();
     for (let i = currentIndex - 1; i <= currentIndex + 2; i++) {
       if (videos[i]) currentVideoIds.add(videos[i].id || videos[i].Id);
@@ -110,7 +115,6 @@
 
     for (const [id, entry] of blobCache.entries()) {
       if (!currentVideoIds.has(id)) {
-        if (entry.abortCtrl) entry.abortCtrl.abort();
         if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
         blobCache.delete(id);
         if (blobCache.size <= MAX_BLOB_CACHE) break;
@@ -118,12 +122,22 @@
     }
   }
 
-  function preloadVideoBlob(itemId) {
+  // Preloads the single next video only while current video is playing smoothly
+  function preloadNextVideoQuietly() {
+    const nextIdx = currentIndex + 1;
+    if (nextIdx >= videos.length) return;
+
+    const item = videos[nextIdx];
+    const itemId = item.id || item.Id;
     if (!itemId || blobCache.has(itemId)) return;
 
-    const streamUrl = buildStreamUrl(itemId);
+    if (currentPreloadAbortCtrl) {
+      currentPreloadAbortCtrl.abort();
+    }
+
     const abortCtrl = new AbortController();
-    blobCache.set(itemId, { blobUrl: null, abortCtrl, timestamp: Date.now() });
+    currentPreloadAbortCtrl = abortCtrl;
+    const streamUrl = buildStreamUrl(itemId);
 
     const headers = {};
     if (token) headers['X-Emby-Token'] = token;
@@ -138,29 +152,21 @@
         return res.blob();
       })
       .then(blob => {
-        const entry = blobCache.get(itemId);
-        if (entry) {
-          entry.blobUrl = URL.createObjectURL(blob);
-          entry.size = blob.size;
-          pruneBlobCache();
+        const blobUrl = URL.createObjectURL(blob);
+        blobCache.set(itemId, { blobUrl, size: blob.size, timestamp: Date.now() });
+        pruneBlobCache();
+
+        // If next video card is standing by, update it to use blobUrl
+        if (currentIndex + 1 === nextIdx && videoNext.dataset.src) {
+          videoNext.dataset.src = blobUrl;
+          videoNext.src = blobUrl;
         }
+
+        currentPreloadAbortCtrl = null;
       })
       .catch(err => {
-        if (err.name !== 'AbortError') {
-          blobCache.delete(itemId);
-        }
+        currentPreloadAbortCtrl = null;
       });
-  }
-
-  function schedulePreloading() {
-    // Preload next 2 videos into memory Blob pool
-    for (let offset = 1; offset <= 2; offset++) {
-      const nextIdx = currentIndex + offset;
-      if (nextIdx < videos.length) {
-        const item = videos[nextIdx];
-        preloadVideoBlob(item.id || item.Id);
-      }
-    }
   }
 
   function resolveVideoSource(itemId) {
@@ -250,6 +256,13 @@
   function renderCurrent() {
     if (!videos.length || currentIndex < 0 || currentIndex >= videos.length) return;
 
+    // Abort any in-flight background download so new current video gets 100% bandwidth!
+    if (currentPreloadAbortCtrl) {
+      currentPreloadAbortCtrl.abort();
+      currentPreloadAbortCtrl = null;
+    }
+    clearTimeout(preloadIdleTimer);
+
     const item = videos[currentIndex];
     topTitle.textContent = item.parentName || item.ParentName || 'Jellyfin Shorts';
     infoTitle.textContent = item.name || item.Name || '';
@@ -276,7 +289,7 @@
       likeLabel.textContent = '喜欢';
     }
 
-    // Set Current Video (prefer Blob cache for 0ms startup)
+    // Set Current Video (gets 100% priority)
     const currentSrc = resolveVideoSource(itemId);
     if (videoCurrent.dataset.src !== currentSrc) {
       videoCurrent.dataset.src = currentSrc;
@@ -288,36 +301,33 @@
       console.log('Autoplay prevented:', e);
     });
 
-    // Set Previous Video
+    // Set Previous Video (no eager download)
     if (currentIndex > 0) {
       const prevItem = videos[currentIndex - 1];
       const prevSrc = resolveVideoSource(prevItem.id || prevItem.Id);
       if (videoPrev.dataset.src !== prevSrc) {
         videoPrev.dataset.src = prevSrc;
         videoPrev.src = prevSrc;
-        videoPrev.preload = 'metadata';
+        videoPrev.preload = 'none';
       }
     } else {
       videoPrev.src = '';
       videoPrev.dataset.src = '';
     }
 
-    // Set Next Video
+    // Set Next Video (keep preload="none" so it doesn't contend for initial bandwidth!)
     if (currentIndex + 1 < videos.length) {
       const nextItem = videos[currentIndex + 1];
       const nextSrc = resolveVideoSource(nextItem.id || nextItem.Id);
       if (videoNext.dataset.src !== nextSrc) {
         videoNext.dataset.src = nextSrc;
         videoNext.src = nextSrc;
-        videoNext.preload = 'auto';
+        videoNext.preload = 'none';
       }
     } else {
       videoNext.src = '';
       videoNext.dataset.src = '';
     }
-
-    // Trigger aggressive forward preloading for upcoming videos
-    schedulePreloading();
 
     // Check if near end to load more feed
     if (currentIndex + 4 >= videos.length && hasMore) {
@@ -326,6 +336,17 @@
 
     resetIdleTimer();
   }
+
+  // Once current video is playing smoothly, schedule quiet background preload for next video
+  videoCurrent.addEventListener('playing', () => {
+    resetIdleTimer();
+    clearTimeout(preloadIdleTimer);
+    preloadIdleTimer = setTimeout(() => {
+      if (!videoCurrent.paused) {
+        preloadNextVideoQuietly();
+      }
+    }, 1200);
+  });
 
   function goToNext() {
     if (currentIndex + 1 >= videos.length) {
@@ -373,7 +394,6 @@
     container.classList.remove('idle-hidden');
     clearTimeout(idleTimer);
 
-    // If video is paused or quality modal is open, don't auto-hide
     if (videoCurrent.paused || isQualityModalOpen) {
       return;
     }
@@ -390,7 +410,6 @@
     window.addEventListener(evt, resetIdleTimer, { passive: true });
   });
 
-  videoCurrent.addEventListener('play', resetIdleTimer);
   videoCurrent.addEventListener('pause', resetIdleTimer);
 
   // ==========================================
@@ -434,7 +453,6 @@
     const preset = QUALITY_PRESETS.find(q => q.id === currentQuality) || QUALITY_PRESETS[0];
     qualityLabel.textContent = preset.name;
 
-    // Render options inside modal
     qualityOptionsEl.innerHTML = QUALITY_PRESETS.map(q => `
       <div class="quality-option-item ${q.id === currentQuality ? 'selected' : ''}" data-id="${q.id}">
         <div>
@@ -445,7 +463,6 @@
       </div>
     `).join('');
 
-    // Attach click handlers
     qualityOptionsEl.querySelectorAll('.quality-option-item').forEach(el => {
       el.addEventListener('click', () => {
         const selectedId = el.dataset.id;
@@ -478,7 +495,6 @@
     const preset = QUALITY_PRESETS.find(q => q.id === currentQuality) || QUALITY_PRESETS[0];
     flashCenterNotice(`画质已切换: ${preset.name}`);
 
-    // Clear old blob caches since bitrate has changed
     clearBlobCache();
 
     if (videos.length && currentIndex < videos.length) {
@@ -495,9 +511,6 @@
       if (wasPlaying) {
         videoCurrent.play().catch(() => {});
       }
-
-      // Re-trigger preloading with new quality
-      schedulePreloading();
     }
   }
 

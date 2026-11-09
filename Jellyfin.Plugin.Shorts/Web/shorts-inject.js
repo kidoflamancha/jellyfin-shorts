@@ -5,6 +5,8 @@
 
   let modalEl = null;
   let iframeEl = null;
+  let lastCheckedId = null;
+  let isCurrentItemSingleVideo = false;
 
   function createModal() {
     if (modalEl) return modalEl;
@@ -77,18 +79,8 @@
     return params.get('id') || params.get('parentId') || params.get('topParentId') || '';
   }
 
-  function injectButtonIntoDetailPage() {
-    const targetContainers = [
-      document.querySelector('.mainDetailButtons'),
-      document.querySelector('.detailButtons'),
-      document.querySelector('.headerButtonSection'),
-      document.querySelector('.detailPageWrapperContainer .detailRibbon')
-    ];
-
-    const container = targetContainers.find(c => c && !c.querySelector('.btn-shorts-launch'));
-    if (!container) return;
-
-    const folderId = getFolderIdFromUrl();
+  function createAndAppendButton(container, folderId) {
+    if (container.querySelector('.btn-shorts-launch')) return;
 
     // Gradient capsule icon button without text
     const btn = document.createElement('button');
@@ -135,6 +127,48 @@
     });
 
     container.appendChild(btn);
+  }
+
+  function injectButtonIntoDetailPage() {
+    const targetContainers = [
+      document.querySelector('.mainDetailButtons'),
+      document.querySelector('.detailButtons'),
+      document.querySelector('.headerButtonSection'),
+      document.querySelector('.detailPageWrapperContainer .detailRibbon')
+    ];
+
+    const container = targetContainers.find(c => c && !c.querySelector('.btn-shorts-launch'));
+    if (!container) return;
+
+    const folderId = getFolderIdFromUrl();
+    if (!folderId) return;
+
+    const apiClient = window.ApiClient;
+    if (apiClient) {
+      if (lastCheckedId === folderId && isCurrentItemSingleVideo) {
+        return;
+      }
+
+      apiClient.getItem(apiClient.getCurrentUserId(), folderId).then(item => {
+        lastCheckedId = folderId;
+        // If single video item (Movie, Video, Episode), DO NOT show shorts button!
+        if (item && !item.IsFolder && item.Type !== 'Playlist' && item.Type !== 'BoxSet' && item.Type !== 'Series') {
+          isCurrentItemSingleVideo = true;
+          return;
+        }
+
+        isCurrentItemSingleVideo = false;
+        createAndAppendButton(container, folderId);
+      }).catch(() => {
+        // Fallback: check DOM elements
+        if (document.querySelector('.trackSelections') || document.querySelector('.btnPlaystate')) {
+          return; // likely single video
+        }
+        createAndAppendButton(container, folderId);
+      });
+    } else {
+      createAndAppendButton(container, folderId);
+    }
   }
 
   // Floating Action Button on home/libraries page for quick access
