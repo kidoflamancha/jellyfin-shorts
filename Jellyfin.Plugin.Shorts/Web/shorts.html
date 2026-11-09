@@ -9,14 +9,14 @@
 <body>
   <div id="shorts-container">
     <!-- Top Navigation -->
-    <header class="top-bar">
+    <header class="top-bar chrome-element">
       <button id="btn-close" class="icon-btn" title="退出">
         <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
       <div id="top-title" class="top-title">Shorts</div>
       <div style="display:flex;gap:8px;">
-        <button id="btn-random" class="icon-btn" title="切换随机/顺序">
-          <svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+        <button id="btn-random" class="icon-btn" title="播放模式">
+          <span id="random-icon-wrapper" class="icon-wrapper"></span>
         </button>
         <button id="btn-mute" class="icon-btn" title="静音开关"></button>
       </div>
@@ -47,7 +47,7 @@
     </main>
 
     <!-- Side Actions -->
-    <aside class="side-actions">
+    <aside class="side-actions chrome-element">
       <div class="action-item" id="btn-like">
         <div class="action-btn">
           <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
@@ -61,12 +61,21 @@
         </div>
         <span class="action-label">比例</span>
       </div>
+
+      <div class="action-item" id="btn-quality">
+        <div class="action-btn">
+          <svg viewBox="0 0 24 24"><path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 11H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm7-1c0 .55-.45 1-1 1h-4V9h4c.55 0 1 .45 1 1v4zm-1.5-3.5h-2v3h2v-3z"/></svg>
+        </div>
+        <span class="action-label" id="quality-label">原画</span>
+      </div>
     </aside>
 
     <!-- Bottom Overlay Meta & Progress -->
     <footer class="bottom-overlay">
-      <div id="info-title" class="video-info-title"></div>
-      <div id="info-tags" class="video-meta-tags"></div>
+      <div id="meta-text-wrapper" class="chrome-element">
+        <div id="info-title" class="video-info-title"></div>
+        <div id="info-tags" class="video-meta-tags"></div>
+      </div>
 
       <div id="progress-container" class="progress-container">
         <div class="progress-track">
@@ -76,6 +85,17 @@
         </div>
       </div>
     </footer>
+
+    <!-- Quality Selector Bottom Sheet Modal -->
+    <div id="quality-modal" class="modal-backdrop">
+      <div class="quality-sheet">
+        <div class="sheet-header">
+          <span class="sheet-title">画质与码率选择</span>
+          <button id="btn-close-quality" class="icon-btn-text">✕</button>
+        </div>
+        <div class="quality-options" id="quality-options"></div>
+      </div>
+    </div>
   </div>
 
   <script src="/Shorts/web/shorts.js"></script>

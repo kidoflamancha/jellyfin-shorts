@@ -8,7 +8,17 @@
   let hasMore = true;
   let isMuted = localStorage.getItem('shorts_muted') !== 'false';
   let isFitCover = localStorage.getItem('shorts_fit_cover') === 'true';
-  let isRandom = true;
+  let isRandom = localStorage.getItem('shorts_random') !== 'false';
+
+  // Quality presets
+  const QUALITY_PRESETS = [
+    { id: 'original', name: '原画', desc: 'Direct Play 原生直出', bitrate: 0 },
+    { id: '1080p', name: '1080P', desc: '8 Mbps 超清转码', bitrate: 8000000 },
+    { id: '720p', name: '720P', desc: '3.5 Mbps 高清流畅', bitrate: 3500000 },
+    { id: '480p', name: '480P', desc: '1.2 Mbps 标清省流', bitrate: 1200000 },
+    { id: '360p', name: '360P', desc: '600 Kbps 极速极简', bitrate: 600000 }
+  ];
+  let currentQuality = localStorage.getItem('shorts_quality') || 'original';
 
   // Extract query parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -16,7 +26,7 @@
   let token = urlParams.get('token') || urlParams.get('api_key') || '';
   let userId = urlParams.get('userId') || '';
 
-  // Attempt to inherit credentials from Jellyfin Web if available
+  // Inherit credentials from Jellyfin Web if available
   if (!token) {
     try {
       if (window.parent && window.parent.ApiClient) {
@@ -39,6 +49,7 @@
   }
 
   // DOM Elements
+  const container = document.getElementById('shorts-container');
   const viewport = document.getElementById('viewport');
   const cardPrev = document.getElementById('card-prev');
   const cardCurrent = document.getElementById('card-current');
@@ -51,11 +62,18 @@
   const infoTitle = document.getElementById('info-title');
   const infoTags = document.getElementById('info-tags');
   const btnClose = document.getElementById('btn-close');
-  const btnMute = document.getElementById('btn-mute');
   const btnRandom = document.getElementById('btn-random');
+  const randomIconWrapper = document.getElementById('random-icon-wrapper');
+  const btnMute = document.getElementById('btn-mute');
   const btnFit = document.getElementById('btn-fit');
   const btnLike = document.getElementById('btn-like');
   const likeLabel = document.getElementById('like-label');
+  const btnQuality = document.getElementById('btn-quality');
+  const qualityLabel = document.getElementById('quality-label');
+  const qualityModal = document.getElementById('quality-modal');
+  const qualityOptionsEl = document.getElementById('quality-options');
+  const btnCloseQuality = document.getElementById('btn-close-quality');
+
   const centerIndicator = document.getElementById('center-indicator');
   const spinner = document.getElementById('spinner');
   const emptyMessage = document.getElementById('empty-message');
@@ -68,14 +86,107 @@
   // Likes memory (client-side persisted)
   const likedItems = new Set(JSON.parse(localStorage.getItem('shorts_likes') || '[]'));
 
-  function buildStreamUrl(itemId) {
-    let url = `/Videos/${itemId}/stream?static=true`;
-    if (token) {
-      url += `&api_key=${encodeURIComponent(token)}`;
+  // ==========================================
+  // 1. Video Preloading & Blob Caching Pool
+  // ==========================================
+  const MAX_BLOB_CACHE = 5;
+  const blobCache = new Map(); // itemId -> { blobUrl, size, timestamp, abortCtrl }
+
+  function clearBlobCache() {
+    for (const [id, entry] of blobCache.entries()) {
+      if (entry.abortCtrl) entry.abortCtrl.abort();
+      if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
     }
+    blobCache.clear();
+  }
+
+  function pruneBlobCache() {
+    if (blobCache.size <= MAX_BLOB_CACHE) return;
+    // Evict entries farthest from currentIndex
+    const currentVideoIds = new Set();
+    for (let i = currentIndex - 1; i <= currentIndex + 2; i++) {
+      if (videos[i]) currentVideoIds.add(videos[i].id || videos[i].Id);
+    }
+
+    for (const [id, entry] of blobCache.entries()) {
+      if (!currentVideoIds.has(id)) {
+        if (entry.abortCtrl) entry.abortCtrl.abort();
+        if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+        blobCache.delete(id);
+        if (blobCache.size <= MAX_BLOB_CACHE) break;
+      }
+    }
+  }
+
+  function preloadVideoBlob(itemId) {
+    if (!itemId || blobCache.has(itemId)) return;
+
+    const streamUrl = buildStreamUrl(itemId);
+    const abortCtrl = new AbortController();
+    blobCache.set(itemId, { blobUrl: null, abortCtrl, timestamp: Date.now() });
+
+    const headers = {};
+    if (token) headers['X-Emby-Token'] = token;
+
+    fetch(streamUrl, {
+      headers,
+      signal: abortCtrl.signal,
+      priority: 'low'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then(blob => {
+        const entry = blobCache.get(itemId);
+        if (entry) {
+          entry.blobUrl = URL.createObjectURL(blob);
+          entry.size = blob.size;
+          pruneBlobCache();
+        }
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          blobCache.delete(itemId);
+        }
+      });
+  }
+
+  function schedulePreloading() {
+    // Preload next 2 videos into memory Blob pool
+    for (let offset = 1; offset <= 2; offset++) {
+      const nextIdx = currentIndex + offset;
+      if (nextIdx < videos.length) {
+        const item = videos[nextIdx];
+        preloadVideoBlob(item.id || item.Id);
+      }
+    }
+  }
+
+  function resolveVideoSource(itemId) {
+    const entry = blobCache.get(itemId);
+    if (entry && entry.blobUrl) {
+      return entry.blobUrl;
+    }
+    return buildStreamUrl(itemId);
+  }
+
+  function buildStreamUrl(itemId) {
+    if (currentQuality === 'original') {
+      let url = `/Videos/${itemId}/stream?static=true`;
+      if (token) url += `&api_key=${encodeURIComponent(token)}`;
+      return url;
+    }
+
+    const preset = QUALITY_PRESETS.find(q => q.id === currentQuality) || QUALITY_PRESETS[0];
+    let url = `/Videos/${itemId}/stream.mp4?static=false&videoBitRate=${preset.bitrate}&maxStreamingBitrate=${preset.bitrate}&audioBitRate=128000`;
+    if (token) url += `&api_key=${encodeURIComponent(token)}`;
     return url;
   }
 
+  // ==========================================
+  // 2. Feed Loader & Rendering
+  // ==========================================
   function fetchFeed(initial = false) {
     if (isLoading || (!hasMore && !initial)) return;
     isLoading = true;
@@ -136,25 +247,6 @@
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
-  function updateMuteState() {
-    videoCurrent.muted = isMuted;
-    videoPrev.muted = isMuted;
-    videoNext.muted = isMuted;
-    btnMute.innerHTML = isMuted
-      ? '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
-      : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
-  }
-
-  function updateFitState() {
-    [cardPrev, cardCurrent, cardNext].forEach(card => {
-      if (isFitCover) {
-        card.classList.add('fit-cover');
-      } else {
-        card.classList.remove('fit-cover');
-      }
-    });
-  }
-
   function renderCurrent() {
     if (!videos.length || currentIndex < 0 || currentIndex >= videos.length) return;
 
@@ -184,25 +276,25 @@
       likeLabel.textContent = '喜欢';
     }
 
-    // Set Current Video
-    const currentStream = buildStreamUrl(itemId);
-    if (videoCurrent.dataset.src !== currentStream) {
-      videoCurrent.dataset.src = currentStream;
-      videoCurrent.src = currentStream;
+    // Set Current Video (prefer Blob cache for 0ms startup)
+    const currentSrc = resolveVideoSource(itemId);
+    if (videoCurrent.dataset.src !== currentSrc) {
+      videoCurrent.dataset.src = currentSrc;
+      videoCurrent.src = currentSrc;
       videoCurrent.load();
     }
     videoCurrent.muted = isMuted;
     videoCurrent.play().catch(e => {
-      console.log('Autoplay prevented, requires user interaction:', e);
+      console.log('Autoplay prevented:', e);
     });
 
-    // Preload Previous Video
+    // Set Previous Video
     if (currentIndex > 0) {
       const prevItem = videos[currentIndex - 1];
-      const prevStream = buildStreamUrl(prevItem.id || prevItem.Id);
-      if (videoPrev.dataset.src !== prevStream) {
-        videoPrev.dataset.src = prevStream;
-        videoPrev.src = prevStream;
+      const prevSrc = resolveVideoSource(prevItem.id || prevItem.Id);
+      if (videoPrev.dataset.src !== prevSrc) {
+        videoPrev.dataset.src = prevSrc;
+        videoPrev.src = prevSrc;
         videoPrev.preload = 'metadata';
       }
     } else {
@@ -210,13 +302,13 @@
       videoPrev.dataset.src = '';
     }
 
-    // Preload Next Video
+    // Set Next Video
     if (currentIndex + 1 < videos.length) {
       const nextItem = videos[currentIndex + 1];
-      const nextStream = buildStreamUrl(nextItem.id || nextItem.Id);
-      if (videoNext.dataset.src !== nextStream) {
-        videoNext.dataset.src = nextStream;
-        videoNext.src = nextStream;
+      const nextSrc = resolveVideoSource(nextItem.id || nextItem.Id);
+      if (videoNext.dataset.src !== nextSrc) {
+        videoNext.dataset.src = nextSrc;
+        videoNext.src = nextSrc;
         videoNext.preload = 'auto';
       }
     } else {
@@ -224,10 +316,15 @@
       videoNext.dataset.src = '';
     }
 
-    // Check if near end to load more
+    // Trigger aggressive forward preloading for upcoming videos
+    schedulePreloading();
+
+    // Check if near end to load more feed
     if (currentIndex + 4 >= videos.length && hasMore) {
       fetchFeed(false);
     }
+
+    resetIdleTimer();
   }
 
   function goToNext() {
@@ -266,6 +363,153 @@
     }, 280);
   }
 
+  // ==========================================
+  // 3. UI Controls Auto-Hiding (Idle Detection)
+  // ==========================================
+  let idleTimer = null;
+  let isQualityModalOpen = false;
+
+  function resetIdleTimer() {
+    container.classList.remove('idle-hidden');
+    clearTimeout(idleTimer);
+
+    // If video is paused or quality modal is open, don't auto-hide
+    if (videoCurrent.paused || isQualityModalOpen) {
+      return;
+    }
+
+    idleTimer = setTimeout(() => {
+      if (!videoCurrent.paused && !isQualityModalOpen) {
+        container.classList.add('idle-hidden');
+      }
+    }, 2500);
+  }
+
+  // Wake up controls on any user activity
+  ['pointermove', 'touchstart', 'touchmove', 'click', 'keydown', 'wheel'].forEach(evt => {
+    window.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+
+  videoCurrent.addEventListener('play', resetIdleTimer);
+  videoCurrent.addEventListener('pause', resetIdleTimer);
+
+  // ==========================================
+  // 4. Random vs Order Icon Toggle
+  // ==========================================
+  const SHUFFLE_ICON = `
+    <svg viewBox="0 0 24 24">
+      <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+    </svg>`;
+
+  const ORDER_ICON = `
+    <svg viewBox="0 0 24 24">
+      <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+    </svg>`;
+
+  function updateRandomButton() {
+    if (isRandom) {
+      randomIconWrapper.innerHTML = SHUFFLE_ICON;
+      btnRandom.classList.add('active-mode');
+      btnRandom.title = '当前：随机推荐（点击切为顺序播放）';
+    } else {
+      randomIconWrapper.innerHTML = ORDER_ICON;
+      btnRandom.classList.remove('active-mode');
+      btnRandom.title = '当前：顺序播放（点击切为随机推荐）';
+    }
+  }
+
+  btnRandom.addEventListener('click', () => {
+    isRandom = !isRandom;
+    localStorage.setItem('shorts_random', isRandom);
+    updateRandomButton();
+    flashCenterNotice(isRandom ? '已开启随机流' : '已切换为顺序播放');
+    clearBlobCache();
+    fetchFeed(true);
+  });
+
+  // ==========================================
+  // 5. Quality / Bitrate Selector
+  // ==========================================
+  function updateQualityUI() {
+    const preset = QUALITY_PRESETS.find(q => q.id === currentQuality) || QUALITY_PRESETS[0];
+    qualityLabel.textContent = preset.name;
+
+    // Render options inside modal
+    qualityOptionsEl.innerHTML = QUALITY_PRESETS.map(q => `
+      <div class="quality-option-item ${q.id === currentQuality ? 'selected' : ''}" data-id="${q.id}">
+        <div>
+          <span class="quality-name">${q.name}</span>
+          <span class="quality-desc">${q.desc}</span>
+        </div>
+        <div class="quality-check">✓</div>
+      </div>
+    `).join('');
+
+    // Attach click handlers
+    qualityOptionsEl.querySelectorAll('.quality-option-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const selectedId = el.dataset.id;
+        if (selectedId !== currentQuality) {
+          switchQuality(selectedId);
+        }
+        closeQualityModal();
+      });
+    });
+  }
+
+  function openQualityModal() {
+    isQualityModalOpen = true;
+    updateQualityUI();
+    qualityModal.classList.add('active');
+    resetIdleTimer();
+  }
+
+  function closeQualityModal() {
+    isQualityModalOpen = false;
+    qualityModal.classList.remove('active');
+    resetIdleTimer();
+  }
+
+  function switchQuality(newQualityId) {
+    currentQuality = newQualityId;
+    localStorage.setItem('shorts_quality', currentQuality);
+    updateQualityUI();
+
+    const preset = QUALITY_PRESETS.find(q => q.id === currentQuality) || QUALITY_PRESETS[0];
+    flashCenterNotice(`画质已切换: ${preset.name}`);
+
+    // Clear old blob caches since bitrate has changed
+    clearBlobCache();
+
+    if (videos.length && currentIndex < videos.length) {
+      const item = videos[currentIndex];
+      const itemId = item.id || item.Id;
+      const prevTime = videoCurrent.currentTime;
+      const wasPlaying = !videoCurrent.paused;
+
+      const newSrc = buildStreamUrl(itemId);
+      videoCurrent.dataset.src = newSrc;
+      videoCurrent.src = newSrc;
+      videoCurrent.currentTime = prevTime;
+
+      if (wasPlaying) {
+        videoCurrent.play().catch(() => {});
+      }
+
+      // Re-trigger preloading with new quality
+      schedulePreloading();
+    }
+  }
+
+  btnQuality.addEventListener('click', openQualityModal);
+  btnCloseQuality.addEventListener('click', closeQualityModal);
+  qualityModal.addEventListener('click', (e) => {
+    if (e.target === qualityModal) closeQualityModal();
+  });
+
+  // ==========================================
+  // 6. Playback & Touch Interactions
+  // ==========================================
   function togglePlayPause() {
     if (videoCurrent.paused) {
       videoCurrent.play();
@@ -274,6 +518,7 @@
       videoCurrent.pause();
       showCenterIcon('pause');
     }
+    resetIdleTimer();
   }
 
   function showCenterIcon(type) {
@@ -289,11 +534,11 @@
   }
 
   function flashCenterNotice(text) {
-    centerIndicator.innerHTML = `<span style="font-size:13px;padding:6px 12px;color:#fff;white-space:nowrap">${text}</span>`;
+    centerIndicator.innerHTML = `<span style="font-size:13px;padding:6px 14px;color:#fff;white-space:nowrap">${text}</span>`;
     centerIndicator.classList.add('visible');
     setTimeout(() => {
       centerIndicator.classList.remove('visible');
-    }, 600);
+    }, 700);
   }
 
   function triggerHeartAnimation(x, y) {
@@ -327,12 +572,10 @@
   // Double tap detection
   let lastTapTime = 0;
   cardCurrent.addEventListener('pointerdown', (e) => {
-    // Ignore clicks on buttons/actions
-    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.bottom-overlay')) return;
+    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.bottom-overlay') || e.target.closest('.modal-backdrop')) return;
 
     const now = Date.now();
     if (now - lastTapTime < 300) {
-      // Double tap
       triggerHeartAnimation(e.clientX, e.clientY);
       const item = videos[currentIndex];
       if (item && !likedItems.has(item.id || item.Id)) {
@@ -343,7 +586,6 @@
       lastTapTime = now;
       setTimeout(() => {
         if (lastTapTime === now) {
-          // Single tap -> toggle play/pause
           togglePlayPause();
         }
       }, 300);
@@ -356,7 +598,7 @@
   let isSwiping = false;
 
   window.addEventListener('touchstart', (e) => {
-    if (e.target.closest('.side-actions') || e.target.closest('.progress-container')) return;
+    if (e.target.closest('.side-actions') || e.target.closest('.progress-container') || e.target.closest('.modal-backdrop')) return;
     touchStartY = e.touches[0].clientY;
     touchDiffY = 0;
     isSwiping = true;
@@ -366,7 +608,6 @@
   window.addEventListener('touchmove', (e) => {
     if (!isSwiping) return;
     touchDiffY = e.touches[0].clientY - touchStartY;
-    // Limit overscroll resistance at boundaries
     if ((currentIndex === 0 && touchDiffY > 0) || (currentIndex === videos.length - 1 && touchDiffY < 0)) {
       touchDiffY *= 0.35;
     }
@@ -390,6 +631,7 @@
   // Mouse Wheel Gesture (throttled)
   let lastWheelTime = 0;
   window.addEventListener('wheel', (e) => {
+    if (isQualityModalOpen) return;
     const now = Date.now();
     if (now - lastWheelTime < 500) return;
     if (Math.abs(e.deltaY) > 35) {
@@ -404,6 +646,10 @@
 
   // Keyboard navigation
   window.addEventListener('keydown', (e) => {
+    if (isQualityModalOpen) {
+      if (e.key === 'Escape') closeQualityModal();
+      return;
+    }
     if (e.key === 'ArrowDown' || e.key === 'j') {
       goToNext();
     } else if (e.key === 'ArrowUp' || e.key === 'k') {
@@ -425,7 +671,6 @@
     progressFill.style.width = `${pct}%`;
     progressThumb.style.left = `${pct}%`;
 
-    // Buffered range
     if (videoCurrent.buffered.length > 0) {
       const bufferedEnd = videoCurrent.buffered.end(videoCurrent.buffered.length - 1);
       const bufPct = (bufferedEnd / videoCurrent.duration) * 100;
@@ -440,9 +685,19 @@
     if (videoCurrent.duration) {
       videoCurrent.currentTime = pos * videoCurrent.duration;
     }
+    resetIdleTimer();
   });
 
   // Action Buttons
+  function updateMuteState() {
+    videoCurrent.muted = isMuted;
+    videoPrev.muted = isMuted;
+    videoNext.muted = isMuted;
+    btnMute.innerHTML = isMuted
+      ? '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+  }
+
   function toggleMute() {
     isMuted = !isMuted;
     localStorage.setItem('shorts_muted', isMuted);
@@ -452,17 +707,21 @@
 
   btnMute.addEventListener('click', toggleMute);
 
+  function updateFitState() {
+    [cardPrev, cardCurrent, cardNext].forEach(card => {
+      if (isFitCover) {
+        card.classList.add('fit-cover');
+      } else {
+        card.classList.remove('fit-cover');
+      }
+    });
+  }
+
   btnFit.addEventListener('click', () => {
     isFitCover = !isFitCover;
     localStorage.setItem('shorts_fit_cover', isFitCover);
     updateFitState();
     flashCenterNotice(isFitCover ? '画面铺满' : '自适应比例');
-  });
-
-  btnRandom.addEventListener('click', () => {
-    isRandom = !isRandom;
-    flashCenterNotice(isRandom ? '已开启随机流' : '顺序播放');
-    fetchFeed(true);
   });
 
   btnLike.addEventListener('click', toggleLike);
@@ -482,6 +741,8 @@
   // Initialize
   updateMuteState();
   updateFitState();
+  updateRandomButton();
+  updateQualityUI();
   fetchFeed(true);
 
 })();
