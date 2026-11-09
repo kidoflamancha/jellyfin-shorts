@@ -9,6 +9,7 @@
   let isMuted = localStorage.getItem('shorts_muted') !== 'false';
   let isFitCover = localStorage.getItem('shorts_fit_cover') === 'true';
   let isRandom = localStorage.getItem('shorts_random') !== 'false';
+  let isAutoAdvance = localStorage.getItem('shorts_auto_advance') === 'true';
 
   // Quality presets
   const QUALITY_PRESETS = [
@@ -64,6 +65,8 @@
   const btnClose = document.getElementById('btn-close');
   const btnRandom = document.getElementById('btn-random');
   const randomIconWrapper = document.getElementById('random-icon-wrapper');
+  const btnAutoNext = document.getElementById('btn-autonext');
+  const autoNextIconWrapper = document.getElementById('autonext-icon-wrapper');
   const btnMute = document.getElementById('btn-mute');
   const btnFit = document.getElementById('btn-fit');
   const btnLike = document.getElementById('btn-like');
@@ -297,6 +300,7 @@
       videoCurrent.load();
     }
     videoCurrent.muted = isMuted;
+    videoCurrent.loop = !isAutoAdvance;
     videoCurrent.play().catch(e => {
       console.log('Autoplay prevented:', e);
     });
@@ -346,6 +350,13 @@
         preloadNextVideoQuietly();
       }
     }, 1200);
+  });
+
+  // When current video ends, automatically advance to next if auto-advance mode is on
+  videoCurrent.addEventListener('ended', () => {
+    if (isAutoAdvance) {
+      goToNext();
+    }
   });
 
   function goToNext() {
@@ -444,6 +455,40 @@
     flashCenterNotice(isRandom ? '已开启随机流' : '已切换为顺序播放');
     clearBlobCache();
     fetchFeed(true);
+  });
+
+  // ==========================================
+  // Auto-Advance vs Single-Loop Toggle
+  // ==========================================
+  const SKIP_NEXT_ICON = `
+    <svg viewBox="0 0 24 24">
+      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+    </svg>`;
+
+  const REPEAT_ONE_ICON = `
+    <svg viewBox="0 0 24 24">
+      <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/>
+    </svg>`;
+
+  function updateAutoNextButton() {
+    if (isAutoAdvance) {
+      autoNextIconWrapper.innerHTML = SKIP_NEXT_ICON;
+      btnAutoNext.classList.add('active-mode');
+      btnAutoNext.title = '当前：自动切下一个（点击切换为单片循环）';
+      videoCurrent.loop = false;
+    } else {
+      autoNextIconWrapper.innerHTML = REPEAT_ONE_ICON;
+      btnAutoNext.classList.remove('active-mode');
+      btnAutoNext.title = '当前：单片循环（点击切换为自动切下一个）';
+      videoCurrent.loop = true;
+    }
+  }
+
+  btnAutoNext.addEventListener('click', () => {
+    isAutoAdvance = !isAutoAdvance;
+    localStorage.setItem('shorts_auto_advance', isAutoAdvance);
+    updateAutoNextButton();
+    flashCenterNotice(isAutoAdvance ? '已开启自动连播 (播完切下一个)' : '已开启单视频循环');
   });
 
   // ==========================================
@@ -674,6 +719,8 @@
       closeShorts();
     } else if (e.key === 'm') {
       toggleMute();
+    } else if (e.key === 'l' || e.key === 'L') {
+      btnAutoNext.click();
     }
   });
 
@@ -755,6 +802,7 @@
   updateMuteState();
   updateFitState();
   updateRandomButton();
+  updateAutoNextButton();
   updateQualityUI();
   fetchFeed(true);
 

@@ -28,6 +28,14 @@
             <div class="fieldDescription">开启后，每次进入默认随机打乱视频顺序；关闭则按文件名或入库时间顺序排列。</div>
           </div>
 
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="chkAutoAdvance" is="emby-checkbox" type="checkbox" />
+              <span>默认开启自动连播</span>
+            </label>
+            <div class="fieldDescription">开启后，单个视频播放完毕后自动切换到下一个视频；关闭则单视频循环重播。</div>
+          </div>
+
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="txtDefaultLimit">单次加载视频数量</label>
             <input id="txtDefaultLimit" is="emby-input" type="number" min="5" max="100" />
@@ -67,6 +75,7 @@
           ApiClient.getJSON(ApiClient.getUrl("Shorts/Configuration")).then(function (config) {
             page.querySelector('#chkRecursive').checked = config.Recursive !== false;
             page.querySelector('#chkRandom').checked = config.EnableRandomFeedByDefault !== false;
+            page.querySelector('#chkAutoAdvance').checked = config.AutoAdvance === true;
             page.querySelector('#txtDefaultLimit').value = config.DefaultLimit || 30;
             page.querySelector('#txtMaxDuration').value = config.MaxDurationMinutes !== undefined ? config.MaxDurationMinutes : 15;
             Dashboard.hideLoadingMsg();
@@ -81,6 +90,7 @@
           var config = {
             Recursive: page.querySelector('#chkRecursive').checked,
             EnableRandomFeedByDefault: page.querySelector('#chkRandom').checked,
+            AutoAdvance: page.querySelector('#chkAutoAdvance').checked,
             DefaultLimit: parseInt(page.querySelector('#txtDefaultLimit').value, 10) || 30,
             MaxDurationMinutes: parseInt(page.querySelector('#txtMaxDuration').value, 10) || 0
           };

@@ -10,6 +10,7 @@ public class ShortsConfiguration : BasePluginConfiguration
         DefaultLimit = 30;
         MaxDurationMinutes = 15;
         EnableRandomFeedByDefault = true;
+        AutoAdvance = false;
     }
 
     /// <summary>
@@ -31,4 +32,9 @@ public class ShortsConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether random order is enabled by default.
     /// </summary>
     public bool EnableRandomFeedByDefault { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether videos should automatically advance to the next upon completion.
+    /// </summary>
+    public bool AutoAdvance { get; set; }
 }

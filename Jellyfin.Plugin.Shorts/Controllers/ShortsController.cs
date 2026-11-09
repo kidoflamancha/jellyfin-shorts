@@ -137,6 +137,7 @@ public class ShortsController : ControllerBase
         config.DefaultLimit = newConfig.DefaultLimit;
         config.MaxDurationMinutes = newConfig.MaxDurationMinutes;
         config.EnableRandomFeedByDefault = newConfig.EnableRandomFeedByDefault;
+        config.AutoAdvance = newConfig.AutoAdvance;
 
         Plugin.Instance.SaveConfiguration();
         return Ok(config);
