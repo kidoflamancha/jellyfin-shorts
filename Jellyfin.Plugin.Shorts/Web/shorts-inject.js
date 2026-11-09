@@ -28,6 +28,30 @@
       box-shadow: 0 0 50px rgba(0,0,0,0.9);
     `;
 
+    document.body.appendChild(modalEl);
+    return modalEl;
+  }
+
+  window.openShortsModal = function (folderId) {
+    createModal();
+
+    // Remove any previous iframe to free memory and prevent duplicate instances
+    if (iframeEl) {
+      try {
+        iframeEl.remove();
+      } catch (e) {}
+      iframeEl = null;
+    }
+
+    const apiClient = window.ApiClient;
+    const token = apiClient ? apiClient.accessToken() : '';
+    const userId = apiClient ? apiClient.getCurrentUserId() : '';
+
+    let url = `/Shorts/app?t=${Date.now()}`;
+    if (folderId) url += `&folderId=${encodeURIComponent(folderId)}`;
+    if (userId) url += `&userId=${encodeURIComponent(userId)}`;
+    if (token) url += `&api_key=${encodeURIComponent(token)}`;
+
     iframeEl = document.createElement('iframe');
     iframeEl.style.cssText = `
       width: 100%;
@@ -40,39 +64,55 @@
     iframeEl.allow = 'autoplay *; fullscreen *; picture-in-picture *';
 
     modalEl.appendChild(iframeEl);
-    document.body.appendChild(modalEl);
-    return modalEl;
-  }
-
-  window.openShortsModal = function (folderId) {
-    createModal();
-    const apiClient = window.ApiClient;
-    const token = apiClient ? apiClient.accessToken() : '';
-    const userId = apiClient ? apiClient.getCurrentUserId() : '';
-
-    let url = `/Shorts/app?t=${Date.now()}`;
-    if (folderId) url += `&folderId=${encodeURIComponent(folderId)}`;
-    if (userId) url += `&userId=${encodeURIComponent(userId)}`;
-    if (token) url += `&api_key=${encodeURIComponent(token)}`;
-
-    iframeEl.src = url;
     modalEl.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+
+    // Use location.replace to load URL inside the iframe without adding an entry to top window history!
+    try {
+      if (iframeEl.contentWindow) {
+        iframeEl.contentWindow.location.replace(url);
+      } else {
+        iframeEl.src = url;
+      }
+    } catch (e) {
+      iframeEl.src = url;
+    }
+
     try {
       iframeEl.focus();
     } catch (e) {}
   };
 
   window.closeShortsModal = function () {
-    if (modalEl) {
+    if (modalEl && modalEl.style.display !== 'none') {
       modalEl.style.display = 'none';
-      if (iframeEl) iframeEl.src = 'about:blank';
+
+      // Destroy the iframe completely without navigating to about:blank
+      // This immediately stops playback and leaves window.history 100% untouched!
+      if (iframeEl) {
+        try {
+          iframeEl.remove();
+        } catch (e) {}
+        iframeEl = null;
+      }
       document.body.style.overflow = '';
     }
   };
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && modalEl && modalEl.style.display === 'flex') {
+      window.closeShortsModal();
+    }
+  });
+
+  // If user navigates via hash/history while modal is open, ensure modal closes cleanly
+  window.addEventListener('hashchange', () => {
+    if (modalEl && modalEl.style.display === 'flex') {
+      window.closeShortsModal();
+    }
+  });
+  window.addEventListener('popstate', () => {
+    if (modalEl && modalEl.style.display === 'flex') {
       window.closeShortsModal();
     }
   });
