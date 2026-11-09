@@ -409,12 +409,12 @@
       fetchFeed(false);
     }
 
-    resetIdleTimer();
+    scheduleIdleHide();
   }
 
   // Once current video is playing smoothly, schedule quiet background preload for next video
   videoCurrent.addEventListener('playing', () => {
-    resetIdleTimer();
+    scheduleIdleHide();
     clearTimeout(preloadIdleTimer);
     preloadIdleTimer = setTimeout(() => {
       if (!videoCurrent.paused) {
@@ -480,9 +480,9 @@
   let idleTimer = null;
   let isQualityModalOpen = false;
 
-  function resetIdleTimer() {
-    container.classList.remove('idle-hidden');
+  function wakeControls() {
     clearTimeout(idleTimer);
+    container.classList.remove('idle-hidden');
 
     if (videoCurrent.paused || isQualityModalOpen) {
       return;
@@ -495,12 +495,51 @@
     }, 2500);
   }
 
-  // Wake up controls on any user activity
-  ['pointermove', 'touchstart', 'touchmove', 'click', 'keydown', 'wheel'].forEach(evt => {
-    window.addEventListener(evt, resetIdleTimer, { passive: true });
+  function scheduleIdleHide() {
+    clearTimeout(idleTimer);
+
+    if (videoCurrent.paused || isQualityModalOpen) {
+      return;
+    }
+
+    // CRITICAL: If controls were already hidden, keep them hidden!
+    // Never wake up controls during hands-free auto-advance or smooth background transitions!
+    if (container.classList.contains('idle-hidden')) {
+      return;
+    }
+
+    idleTimer = setTimeout(() => {
+      if (!videoCurrent.paused && !isQualityModalOpen) {
+        container.classList.add('idle-hidden');
+      }
+    }, 2500);
+  }
+
+  // Wake up controls on user activity (with coordinate filter for pointermove)
+  let lastPointerX = -1;
+  let lastPointerY = -1;
+
+  window.addEventListener('pointermove', (e) => {
+    // Ignore synthetic pointermove events dispatched by browser during CSS transforms
+    if (e.clientX === lastPointerX && e.clientY === lastPointerY) {
+      return;
+    }
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
+    wakeControls();
+  }, { passive: true });
+
+  ['touchstart', 'touchmove', 'click', 'keydown', 'wheel'].forEach(evt => {
+    window.addEventListener(evt, wakeControls, { passive: true });
   });
 
-  videoCurrent.addEventListener('pause', resetIdleTimer);
+  // Only wake controls if the user explicitly/manually paused the video!
+  // Internal pause during slide transitions or ended events will NOT wake controls!
+  videoCurrent.addEventListener('pause', () => {
+    if (userPausedManually) {
+      wakeControls();
+    }
+  });
 
   // ==========================================
   // 4. Random vs Order Icon Toggle
@@ -602,13 +641,13 @@
     isQualityModalOpen = true;
     updateQualityUI();
     qualityModal.classList.add('active');
-    resetIdleTimer();
+    wakeControls();
   }
 
   function closeQualityModal() {
     isQualityModalOpen = false;
     qualityModal.classList.remove('active');
-    resetIdleTimer();
+    scheduleIdleHide();
   }
 
   function switchQuality(newQualityId) {
@@ -653,12 +692,13 @@
       userPausedManually = false;
       playCurrentVideo();
       showCenterIcon('play');
+      scheduleIdleHide();
     } else {
       userPausedManually = true;
       videoCurrent.pause();
       showCenterIcon('pause');
+      wakeControls();
     }
-    resetIdleTimer();
   }
 
   function showCenterIcon(type) {
@@ -827,7 +867,7 @@
     if (videoCurrent.duration) {
       videoCurrent.currentTime = pos * videoCurrent.duration;
     }
-    resetIdleTimer();
+    wakeControls();
   });
 
   // Action Buttons
