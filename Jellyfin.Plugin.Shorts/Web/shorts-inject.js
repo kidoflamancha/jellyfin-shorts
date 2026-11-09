@@ -6,11 +6,6 @@
   let modalEl = null;
   let iframeEl = null;
 
-  const SHORTS_ICON_SVG = `
-    <svg viewBox="0 0 24 24" style="width: 1.45em; height: 1.45em; fill: currentColor; display: block;">
-      <path d="M17.77 10.32l-1.2-.5L18 9.06a3.74 3.74 0 0 0-3.5-5.46 3.71 3.71 0 0 0-2.41.87l-5.63 3.32a3.74 3.74 0 0 0 0 6.42l1.2.5-1.43.76a3.74 3.74 0 0 0 3.5 5.46 3.71 3.71 0 0 0 2.41-.87l5.63-3.32a3.74 3.74 0 0 0 0-6.42zM10 14.5v-5l4.5 2.5-4.5 2.5z"/>
-    </svg>`;
-
   function createModal() {
     if (modalEl) return modalEl;
 
@@ -94,54 +89,44 @@
     if (!container) return;
 
     const folderId = getFolderIdFromUrl();
-    const isDetailRibbon = container.classList.contains('mainDetailButtons') || container.classList.contains('detailButtons');
 
+    // Gradient capsule icon button without text
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.setAttribute('is', 'emby-button');
+    btn.className = 'emby-button btn-shorts-launch';
+    btn.title = '刷短视频 (Shorts)';
+    btn.style.cssText = `
+      background: linear-gradient(135deg, #ff2c55 0%, #00a4dc 100%) !important;
+      color: #fff !important;
+      border-radius: 20px !important;
+      width: 52px !important;
+      height: 32px !important;
+      min-width: 52px !important;
+      padding: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      cursor: pointer !important;
+      margin: 4px 6px !important;
+      border: none !important;
+      box-shadow: 0 2px 10px rgba(255, 44, 85, 0.35) !important;
+      transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.15s !important;
+      vertical-align: middle !important;
+    `;
+    btn.innerHTML = `
+      <svg style="width: 17px; height: 17px; fill: #fff; margin-left: 2px; display: block;" viewBox="0 0 24 24">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+    `;
 
-    if (isDetailRibbon) {
-      // 100% Native Jellyfin Detail Button (matches Play, Shuffle, Download buttons)
-      btn.className = 'button-flat btn-shorts-launch detailButton emby-button';
-      btn.title = '刷短视频 (Shorts)';
-      btn.innerHTML = `
-        <div class="detailButton-content">
-          <span class="detailButton-icon" style="display:flex;align-items:center;justify-content:center;color:#00a4dc;">
-            ${SHORTS_ICON_SVG}
-          </span>
-          <div class="detailButton-text" style="font-size: 80%; font-weight: 400; margin-top: .7em; color: rgba(255,255,255,0.85);">短视频</div>
-        </div>
-      `;
-    } else {
-      // Elegant minimal dark button for list/header toolbars
-      btn.className = 'emby-button btn-shorts-launch button-flat raised-mini';
-      btn.title = '刷短视频 (Shorts)';
-      btn.style.cssText = `
-        background: rgba(255, 255, 255, 0.08) !important;
-        color: #fff !important;
-        font-weight: 500 !important;
-        font-size: 13px !important;
-        border-radius: 6px !important;
-        padding: 0 14px !important;
-        height: 34px !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        flex-direction: row !important;
-        gap: 6px !important;
-        cursor: pointer !important;
-        margin: 4px 6px !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        backdrop-filter: blur(8px) !important;
-        transition: background 0.2s, transform 0.1s !important;
-      `;
-      btn.innerHTML = `
-        <span style="display:flex;align-items:center;color:#00a4dc;">${SHORTS_ICON_SVG}</span>
-        <span>短视频</span>
-      `;
-
-      btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(255, 255, 255, 0.14)');
-      btn.addEventListener('mouseleave', () => btn.style.background = 'rgba(255, 255, 255, 0.08)');
-    }
+    btn.addEventListener('mouseenter', () => {
+      btn.style.transform = 'scale(1.08)';
+      btn.style.boxShadow = '0 4px 14px rgba(0, 164, 220, 0.5)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transform = 'scale(1)';
+      btn.style.boxShadow = '0 2px 10px rgba(255, 44, 85, 0.35)';
+    });
 
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -166,30 +151,29 @@
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background: rgba(24, 24, 24, 0.88);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+      background: linear-gradient(135deg, #ff2c55, #00a4dc);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       z-index: 9999;
-      color: #00a4dc;
-      transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.2s, box-shadow 0.2s;
+      color: #fff;
+      transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s;
     `;
-    fab.innerHTML = SHORTS_ICON_SVG;
+    fab.innerHTML = `
+      <svg style="width: 22px; height: 22px; fill: #fff; margin-left: 2px;" viewBox="0 0 24 24">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+    `;
 
     fab.addEventListener('mouseenter', () => {
       fab.style.transform = 'scale(1.1)';
-      fab.style.background = 'rgba(36, 36, 36, 0.95)';
-      fab.style.boxShadow = '0 8px 24px rgba(0, 164, 220, 0.35)';
+      fab.style.boxShadow = '0 6px 20px rgba(255, 44, 85, 0.55)';
     });
-
     fab.addEventListener('mouseleave', () => {
       fab.style.transform = 'scale(1)';
-      fab.style.background = 'rgba(24, 24, 24, 0.88)';
-      fab.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.55)';
+      fab.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.45)';
     });
 
     fab.addEventListener('click', () => {
