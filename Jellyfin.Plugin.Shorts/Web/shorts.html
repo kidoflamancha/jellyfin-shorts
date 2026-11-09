@@ -39,13 +39,13 @@
     <!-- Feed Viewport -->
     <main id="viewport" class="feed-viewport">
       <section id="card-prev" class="video-card" style="transform: translateY(-100%);">
-        <video playsinline loop muted></video>
+        <video playsinline loop muted preload="none"></video>
       </section>
       <section id="card-current" class="video-card" style="transform: translateY(0);">
-        <video playsinline loop></video>
+        <video playsinline loop muted autoplay></video>
       </section>
       <section id="card-next" class="video-card" style="transform: translateY(100%);">
-        <video playsinline loop muted></video>
+        <video playsinline loop muted preload="none"></video>
       </section>
     </main>
 

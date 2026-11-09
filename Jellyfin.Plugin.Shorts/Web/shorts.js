@@ -10,6 +10,8 @@
   let isFitCover = localStorage.getItem('shorts_fit_cover') === 'true';
   let isRandom = localStorage.getItem('shorts_random') !== 'false';
   let isAutoAdvance = localStorage.getItem('shorts_auto_advance') === 'true';
+  let userPausedManually = false;
+  let autoUnmutePending = false;
 
   // Quality presets
   const QUALITY_PRESETS = [
@@ -256,6 +258,79 @@
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
+  function setupAutoUnmuteOnFirstTouch() {
+    if (autoUnmutePending) return;
+    autoUnmutePending = true;
+
+    function handleFirstUserInteraction(e) {
+      if (e && e.target && e.target.closest('#btn-mute')) return;
+
+      window.removeEventListener('pointerdown', handleFirstUserInteraction, true);
+      window.removeEventListener('keydown', handleFirstUserInteraction, true);
+      autoUnmutePending = false;
+
+      // Only restore unmuted audio if user preferred sound (shorts_muted === 'false')
+      const storedMute = localStorage.getItem('shorts_muted');
+      if (storedMute === 'false') {
+        isMuted = false;
+        videoCurrent.muted = false;
+        updateMuteState();
+        flashCenterNotice('已开启声音');
+      }
+    }
+
+    window.addEventListener('pointerdown', handleFirstUserInteraction, true);
+    window.addEventListener('keydown', handleFirstUserInteraction, true);
+  }
+
+  function playCurrentVideo() {
+    if (userPausedManually) return;
+    videoCurrent.loop = !isAutoAdvance;
+
+    const userWantsSound = (localStorage.getItem('shorts_muted') === 'false');
+
+    if (userWantsSound) {
+      videoCurrent.muted = false;
+      const playPromise = videoCurrent.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            isMuted = false;
+            updateMuteState();
+          })
+          .catch(err => {
+            console.warn('[Shorts] Unmuted autoplay blocked by browser policy, falling back to muted autoplay:', err);
+            // Fallback immediately to muted playback so it ALWAYS starts automatically!
+            videoCurrent.muted = true;
+            isMuted = true;
+            updateMuteState();
+
+            const retryPromise = videoCurrent.play();
+            if (retryPromise !== undefined) {
+              retryPromise
+                .then(() => {
+                  flashCenterNotice('已为您自动播放 (已静音，轻触开启声音)');
+                  setupAutoUnmuteOnFirstTouch();
+                })
+                .catch(retryErr => {
+                  console.error('[Shorts] Muted autoplay also failed:', retryErr);
+                });
+            }
+          });
+      }
+    } else {
+      videoCurrent.muted = true;
+      isMuted = true;
+      updateMuteState();
+      const playPromise = videoCurrent.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn('[Shorts] Play prevented:', err);
+        });
+      }
+    }
+  }
+
   function renderCurrent() {
     if (!videos.length || currentIndex < 0 || currentIndex >= videos.length) return;
 
@@ -297,13 +372,9 @@
     if (videoCurrent.dataset.src !== currentSrc) {
       videoCurrent.dataset.src = currentSrc;
       videoCurrent.src = currentSrc;
-      videoCurrent.load();
     }
-    videoCurrent.muted = isMuted;
-    videoCurrent.loop = !isAutoAdvance;
-    videoCurrent.play().catch(e => {
-      console.log('Autoplay prevented:', e);
-    });
+    userPausedManually = false;
+    playCurrentVideo();
 
     // Set Previous Video (no eager download)
     if (currentIndex > 0) {
@@ -352,6 +423,12 @@
     }, 1200);
   });
 
+  videoCurrent.addEventListener('canplay', () => {
+    if (videoCurrent.paused && !userPausedManually) {
+      playCurrentVideo();
+    }
+  });
+
   // When current video ends, automatically advance to next if auto-advance mode is on
   videoCurrent.addEventListener('ended', () => {
     if (isAutoAdvance) {
@@ -365,6 +442,7 @@
       return;
     }
 
+    userPausedManually = false;
     videoCurrent.pause();
     viewport.style.transition = 'transform 0.28s cubic-bezier(0.2, 0.9, 0.4, 1)';
     viewport.style.transform = 'translateY(-100%)';
@@ -383,6 +461,7 @@
       return;
     }
 
+    userPausedManually = false;
     videoCurrent.pause();
     viewport.style.transition = 'transform 0.28s cubic-bezier(0.2, 0.9, 0.4, 1)';
     viewport.style.transform = 'translateY(100%)';
@@ -554,7 +633,8 @@
       videoCurrent.currentTime = prevTime;
 
       if (wasPlaying) {
-        videoCurrent.play().catch(() => {});
+        userPausedManually = false;
+        playCurrentVideo();
       }
     }
   }
@@ -570,9 +650,11 @@
   // ==========================================
   function togglePlayPause() {
     if (videoCurrent.paused) {
-      videoCurrent.play();
+      userPausedManually = false;
+      playCurrentVideo();
       showCenterIcon('play');
     } else {
+      userPausedManually = true;
       videoCurrent.pause();
       showCenterIcon('pause');
     }
@@ -799,6 +881,8 @@
   btnClose.addEventListener('click', closeShorts);
 
   // Initialize
+  videoCurrent.defaultMuted = isMuted;
+  videoCurrent.muted = isMuted;
   updateMuteState();
   updateFitState();
   updateRandomButton();

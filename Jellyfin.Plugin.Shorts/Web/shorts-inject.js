@@ -35,7 +35,9 @@
       border: none;
       background: #000;
     `;
-    iframeEl.allow = 'autoplay; fullscreen';
+    iframeEl.setAttribute('allow', 'autoplay *; fullscreen *; picture-in-picture *');
+    iframeEl.setAttribute('allowfullscreen', 'true');
+    iframeEl.allow = 'autoplay *; fullscreen *; picture-in-picture *';
 
     modalEl.appendChild(iframeEl);
     document.body.appendChild(modalEl);
@@ -56,6 +58,9 @@
     iframeEl.src = url;
     modalEl.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    try {
+      iframeEl.focus();
+    } catch (e) {}
   };
 
   window.closeShortsModal = function () {
