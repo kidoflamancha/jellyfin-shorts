@@ -25,8 +25,17 @@
       display: none;
       flex-direction: column;
       overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: none;
       box-shadow: 0 0 50px rgba(0,0,0,0.9);
     `;
+
+    // Prevent any overscroll on host document while modal is active
+    document.addEventListener('touchmove', (e) => {
+      if (modalEl && modalEl.style.display !== 'none') {
+        if (e.cancelable) e.preventDefault();
+      }
+    }, { passive: false });
 
     document.body.appendChild(modalEl);
     return modalEl;
@@ -58,7 +67,10 @@
       height: 100%;
       border: none;
       background: #000;
+      touch-action: none;
+      overscroll-behavior: none;
     `;
+    iframeEl.setAttribute('scrolling', 'no');
     iframeEl.setAttribute('allow', 'autoplay *; fullscreen *; picture-in-picture *');
     iframeEl.setAttribute('allowfullscreen', 'true');
     iframeEl.allow = 'autoplay *; fullscreen *; picture-in-picture *';

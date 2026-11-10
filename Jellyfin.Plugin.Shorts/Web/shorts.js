@@ -529,7 +529,8 @@
     wakeControls();
   }, { passive: true });
 
-  ['touchstart', 'touchmove', 'click', 'keydown', 'wheel'].forEach(evt => {
+  // Wake controls on keyboard activity (Space, Esc, Arrows)
+  ['keydown'].forEach(evt => {
     window.addEventListener(evt, wakeControls, { passive: true });
   });
 
@@ -749,64 +750,130 @@
     localStorage.setItem('shorts_likes', JSON.stringify(Array.from(likedItems)));
   }
 
-  // Double tap detection
-  let lastTapTime = 0;
-  cardCurrent.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.bottom-overlay') || e.target.closest('.modal-backdrop')) return;
-
-    const now = Date.now();
-    if (now - lastTapTime < 300) {
-      triggerHeartAnimation(e.clientX, e.clientY);
-      const item = videos[currentIndex];
-      if (item && !likedItems.has(item.id || item.Id)) {
-        toggleLike();
-      }
-      lastTapTime = 0;
-    } else {
-      lastTapTime = now;
-      setTimeout(() => {
-        if (lastTapTime === now) {
-          togglePlayPause();
-        }
-      }, 300);
-    }
-  });
-
-  // Touch Swipe Gesture
+  // Gesture & Tap/Swipe Handling
+  // ==========================================
+  let touchStartX = 0;
   let touchStartY = 0;
   let touchDiffY = 0;
   let isSwiping = false;
+  let isTouchMoved = false;
+  let touchActive = false;
+  let lastTapTime = 0;
+  let tapTimer = null;
+
+  // Unconditionally block document-level elastic rubber-banding on mobile browsers
+  document.addEventListener('touchmove', (e) => {
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }, { passive: false });
 
   window.addEventListener('touchstart', (e) => {
-    if (e.target.closest('.side-actions') || e.target.closest('.progress-container') || e.target.closest('.modal-backdrop')) return;
-    touchStartY = e.touches[0].clientY;
+    // Exclude touches on action buttons, top bar, progress bar, or modal backdrop
+    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.progress-container') || e.target.closest('.modal-backdrop')) {
+      touchActive = false;
+      return;
+    }
+
+    touchActive = true;
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
     touchDiffY = 0;
-    isSwiping = true;
+    isSwiping = false;
+    isTouchMoved = false;
     viewport.style.transition = 'none';
   }, { passive: true });
 
   window.addEventListener('touchmove', (e) => {
-    if (!isSwiping) return;
-    touchDiffY = e.touches[0].clientY - touchStartY;
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+    if (!touchActive || e.touches.length !== 1) return;
+
+    const t = e.touches[0];
+    const diffX = t.clientX - touchStartX;
+    const diffY = t.clientY - touchStartY;
+
+    // Movement > 5px indicates a genuine swipe rather than a tap
+    if (Math.abs(diffX) > 5 || Math.abs(diffY) > 5) {
+      isTouchMoved = true;
+    }
+
+    touchDiffY = diffY;
+    isSwiping = true;
+
+    // Apply smooth damping at boundary ends
+    let moveY = touchDiffY;
     if ((currentIndex === 0 && touchDiffY > 0) || (currentIndex === videos.length - 1 && touchDiffY < 0)) {
-      touchDiffY *= 0.35;
+      moveY *= 0.25;
     }
-    viewport.style.transform = `translateY(${touchDiffY}px)`;
-  }, { passive: true });
+    viewport.style.transform = `translateY(${moveY}px)`;
+  }, { passive: false });
 
-  window.addEventListener('touchend', () => {
-    if (!isSwiping) return;
+  window.addEventListener('touchend', (e) => {
+    if (!touchActive) return;
+    touchActive = false;
+
+    // If the finger dragged -> handle video transition
+    if (isSwiping && isTouchMoved) {
+      isSwiping = false;
+      isTouchMoved = false;
+      viewport.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.4, 1)';
+
+      if (touchDiffY < -50) {
+        goToNext();
+      } else if (touchDiffY > 50) {
+        goToPrev();
+      } else {
+        viewport.style.transform = 'translateY(0)';
+      }
+      touchDiffY = 0;
+      return;
+    }
+
     isSwiping = false;
-    viewport.style.transition = 'transform 0.25s ease-out';
 
-    if (touchDiffY < -60) {
-      goToNext();
-    } else if (touchDiffY > 60) {
-      goToPrev();
-    } else {
-      viewport.style.transform = 'translateY(0)';
+    // If the finger did not drag -> It's a genuine tap!
+    if (!isTouchMoved) {
+      const touchPos = e.changedTouches ? e.changedTouches[0] : null;
+      handleTapOrClick(touchPos ? touchPos.clientX : window.innerWidth / 2, touchPos ? touchPos.clientY : window.innerHeight / 2);
     }
+    isTouchMoved = false;
   });
+
+  // Desktop click on card-current
+  cardCurrent.addEventListener('click', (e) => {
+    if (e.pointerType === 'touch') return; // Handled by touchend on touch devices
+    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.bottom-overlay') || e.target.closest('.modal-backdrop')) return;
+
+    handleTapOrClick(e.clientX, e.clientY);
+  });
+
+  // Handle single tap (toggle play/pause) and double tap (like)
+  function handleTapOrClick(x, y) {
+    const now = Date.now();
+
+    // Double tap -> Heart animation + Like!
+    if (now - lastTapTime < 280) {
+      clearTimeout(tapTimer);
+      tapTimer = null;
+      lastTapTime = 0;
+      triggerHeartAnimation(x, y);
+      const item = videos[currentIndex];
+      if (item && !likedItems.has(item.id || item.Id)) {
+        toggleLike();
+      }
+      return;
+    }
+
+    // Single tap -> Toggle Play / Pause!
+    lastTapTime = now;
+    tapTimer = setTimeout(() => {
+      tapTimer = null;
+      togglePlayPause();
+    }, 280);
+  }
 
   // Mouse Wheel Gesture (throttled)
   let lastWheelTime = 0;
