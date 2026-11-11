@@ -7,6 +7,39 @@
   let iframeEl = null;
   let lastCheckedId = null;
   let isCurrentItemSingleVideo = false;
+  let savedScrollY = 0;
+
+  function lockHostViewport() {
+    savedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'none';
+    document.documentElement.style.touchAction = 'none';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    document.body.style.touchAction = 'none';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${savedScrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.height = '100%';
+  }
+
+  function unlockHostViewport() {
+    document.documentElement.style.overflow = '';
+    document.documentElement.style.overscrollBehavior = '';
+    document.documentElement.style.touchAction = '';
+    document.body.style.overflow = '';
+    document.body.style.overscrollBehavior = '';
+    document.body.style.touchAction = '';
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.width = '';
+    document.body.style.height = '';
+    window.scrollTo(0, savedScrollY);
+  }
 
   function createModal() {
     if (modalEl) return modalEl;
@@ -77,7 +110,7 @@
 
     modalEl.appendChild(iframeEl);
     modalEl.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    lockHostViewport();
 
     // Use location.replace to load URL inside the iframe without adding an entry to top window history!
     try {
@@ -107,7 +140,7 @@
         } catch (e) {}
         iframeEl = null;
       }
-      document.body.style.overflow = '';
+      unlockHostViewport();
     }
   };
 

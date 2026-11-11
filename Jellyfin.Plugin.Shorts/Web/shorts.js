@@ -438,6 +438,8 @@
 
   function goToNext() {
     if (currentIndex + 1 >= videos.length) {
+      viewport.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.4, 1)';
+      viewport.style.transform = 'translateY(0)';
       flashCenterNotice('已经是最后一个了');
       return;
     }
@@ -457,6 +459,8 @@
 
   function goToPrev() {
     if (currentIndex <= 0) {
+      viewport.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.4, 1)';
+      viewport.style.transform = 'translateY(0)';
       flashCenterNotice('已经是第一个了');
       return;
     }
@@ -520,6 +524,10 @@
   let lastPointerY = -1;
 
   window.addEventListener('pointermove', (e) => {
+    // Ignore touch pointer movement so swiping on mobile never wakes hidden controls
+    if (e.pointerType === 'touch') {
+      return;
+    }
     // Ignore synthetic pointermove events dispatched by browser during CSS transforms
     if (e.clientX === lastPointerX && e.clientY === lastPointerY) {
       return;
@@ -770,8 +778,8 @@
   }, { passive: false });
 
   window.addEventListener('touchstart', (e) => {
-    // Exclude touches on action buttons, top bar, progress bar, or modal backdrop
-    if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.progress-container') || e.target.closest('.modal-backdrop')) {
+    // Exclude touches on interactive buttons, progress bar, or modal sheet
+    if (e.target.closest('button, .action-item, .progress-container, .modal-backdrop')) {
       touchActive = false;
       return;
     }
@@ -804,10 +812,10 @@
     touchDiffY = diffY;
     isSwiping = true;
 
-    // Apply smooth damping at boundary ends
+    // Hard stop at boundary ends (no elastic rubber-band stretch on first/last video)
     let moveY = touchDiffY;
     if ((currentIndex === 0 && touchDiffY > 0) || (currentIndex === videos.length - 1 && touchDiffY < 0)) {
-      moveY *= 0.25;
+      moveY = 0;
     }
     viewport.style.transform = `translateY(${moveY}px)`;
   }, { passive: false });
@@ -822,9 +830,9 @@
       isTouchMoved = false;
       viewport.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.4, 1)';
 
-      if (touchDiffY < -50) {
+      if (touchDiffY < -30) {
         goToNext();
-      } else if (touchDiffY > 50) {
+      } else if (touchDiffY > 30) {
         goToPrev();
       } else {
         viewport.style.transform = 'translateY(0)';
