@@ -758,6 +758,7 @@
   let isSwiping = false;
   let isTouchMoved = false;
   let touchActive = false;
+  let lastTouchEndTime = 0;
   let lastTapTime = 0;
   let tapTimer = null;
 
@@ -836,6 +837,7 @@
 
     // If the finger did not drag -> It's a genuine tap!
     if (!isTouchMoved) {
+      lastTouchEndTime = Date.now();
       const touchPos = e.changedTouches ? e.changedTouches[0] : null;
       handleTapOrClick(touchPos ? touchPos.clientX : window.innerWidth / 2, touchPos ? touchPos.clientY : window.innerHeight / 2);
     }
@@ -844,7 +846,8 @@
 
   // Desktop click on card-current
   cardCurrent.addEventListener('click', (e) => {
-    if (e.pointerType === 'touch') return; // Handled by touchend on touch devices
+    // If this click is a synthetic ghost click following a touch on mobile, completely ignore it!
+    if (Date.now() - lastTouchEndTime < 600) return;
     if (e.target.closest('.side-actions') || e.target.closest('.top-bar') || e.target.closest('.bottom-overlay') || e.target.closest('.modal-backdrop')) return;
 
     handleTapOrClick(e.clientX, e.clientY);
@@ -855,7 +858,7 @@
     const now = Date.now();
 
     // Double tap -> Heart animation + Like!
-    if (now - lastTapTime < 280) {
+    if (now - lastTapTime < 240) {
       clearTimeout(tapTimer);
       tapTimer = null;
       lastTapTime = 0;
@@ -872,7 +875,7 @@
     tapTimer = setTimeout(() => {
       tapTimer = null;
       togglePlayPause();
-    }, 280);
+    }, 240);
   }
 
   // Mouse Wheel Gesture (throttled)
