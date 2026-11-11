@@ -1,4 +1,25 @@
-bin/
-obj/
+# Build results
+[Bb]in/
+[Oo]bj/
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+# User-specific & IDE files
 *.user
+*.userosscache
+*.suo
+*.userprefs
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local scripts & private notes
+deploy.sh
+task.md
+*.local.*
+*.env

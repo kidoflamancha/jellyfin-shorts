@@ -16,7 +16,7 @@ Jellyfin 类抖音短视频（Shorts）垂直切片信息流播放插件。
 
 ```
 jellyfin-Shorts/
-├── deploy.sh                     # 一键构建与远端部署脚本
+├── deploy.example.sh             # 自动化构建与部署脚本模板
 ├── Jellyfin.Plugin.Shorts/
 │   ├── Jellyfin.Plugin.Shorts.csproj
 │   ├── Plugin.cs                 # 插件入口与生命周期
@@ -38,9 +38,27 @@ jellyfin-Shorts/
 │   └── meta.json                 # 插件描述元数据
 ```
 
-## 构建与部署
+## 构建与安装
+
+### 1. 构建插件
+要求环境：[.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
 ```bash
-# 一键编译并同步至 your-server-ip
-./deploy.sh
+dotnet build -c Release
 ```
+
+编译产物位于 `Jellyfin.Plugin.Shorts/bin/Release/net9.0/Jellyfin.Plugin.Shorts.dll`。
+
+### 2. 安装插件
+1. 在 Jellyfin 配置目录中的 `plugins` 文件夹下创建 `Shorts` 目录（例如 `/config/plugins/Shorts`）；
+2. 将编译好的 `Jellyfin.Plugin.Shorts.dll` 以及 `meta.json` 复制到该目录下；
+3. 重启 Jellyfin 服务容器；
+4. 进入 Jellyfin 控制台「控制台 -> 插件」，即可看到 Shorts 插件已激活并可配置默认行为。
+
+### 3. Web 端注入（可选）
+如果希望在 Jellyfin 官方网页端的媒体库界面中直接显示「刷短视频」按钮，可将 `Jellyfin.Plugin.Shorts/Web/shorts-inject.js` 引入 Jellyfin Web：
+- 在 Jellyfin Web 的 `index.html` 结尾 `</body>` 前加入：
+  ```html
+  <script defer="defer" src="/Shorts/web/shorts-inject.js"></script>
+  ```
+- 或者直接访问独立页面体验：`http://<your-jellyfin-host>:8096/Shorts/app`。
